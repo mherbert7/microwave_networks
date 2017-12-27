@@ -7,3 +7,6 @@ As discussed in the guide, there is room for flexibility when leaning towards im
 
 ## Version
 This is currently being written to be compatible with Python 3. Development is being done in Python 3.6.3
+
+## Wiki
+Please head along to this repository's wiki to find (hopefully) helpful examples on how to use this module.
