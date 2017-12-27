@@ -1,5 +1,5 @@
 # Python byte code
-.pyc
+*.pyc
 
 # Object files
 *.o
