@@ -50,6 +50,11 @@ class network:
            
            raise ValueError('Incorrect number of arguments')
            
+        # convert args to floats (to make sure no integers are used later on)
+        fl_args = np.array(list(args), dtype='float')
+        args = tuple(fl_args)
+        characteristic_impedance = float(characteristic_impedance)
+          
         #Initialise the ABCD matrix based on the arguments
         initial_value = 0
         self.A = initial_value
