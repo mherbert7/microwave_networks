@@ -10,6 +10,76 @@ __author__ = "michael"
 import numpy as np
 import matplotlib.pyplot as plt
 
+def match_single_shunt_stub(line_impedance, load_impedance, frequency, 
+        plot=False):
+    """
+    Matches a real line impedance to a complex load impedance at a given
+    frequency using a single shunt stub.
+    """
+    if np.imag(line_impedance) != 0:
+        raise ValueError('Line impedance must be solely real')
+    if np.real(line_impedance) <= 0:
+        raise ValueError('Line impedance must be positive')
+    r_ld = np.real(load_impedance)
+    x_ld = np.imag(load_impedance)
+    z_0 = line_impedance
+    wavelength = 3e8/(frequency)
+    prop_const = 2*np.pi/wavelength
+    # using impedance of transmission line to solve for distance from load
+    # and length of stub
+    if r_ld == z_0:
+        t_1 = -x_ld/(2*z_0)
+        t_2 = t_1
+    else:
+        t_num_rt = np.sqrt(r_ld*((z_0 - r_ld)**2 + x_ld**2)/z_0)
+        t_1 = (x_ld + t_num_rt)/(r_ld - z_0)
+        t_2 = (x_ld - t_num_rt)/(r_ld - z_0)
+
+    # determine the distance from the load to place the stub
+    if t_1 >= 0:
+        d_1 = 1/(2*np.pi)*np.arctan(t_1)
+    else:
+        d_1 = 1/(2*np.pi)*(np.pi + np.arctan(t_1))
+    if t_2 >= 0:
+        d_2 = 1/(2*np.pi)*np.arctan(t_2)
+    else:
+        d_2 = 1/(2*np.pi)*(np.pi + np.arctan(t_2))
+    d_1 = d_1*wavelength
+    d_2 = d_2*wavelength
+   
+    # get the values for B (susceptance of line)
+    b_1 = stub_susceptance(t_1, r_ld, x_ld, z_0)
+    b_2 = stub_susceptance(t_2, r_ld, x_ld, z_0)
+
+    # determine the stub lengths
+    l_1_oc = -1/(2*np.pi)*np.arctan(b_1*z_0)*wavelength
+    l_1_sc = 1/(2*np.pi)*np.arctan(1/(b_1*z_0))*wavelength
+    l_2_oc = -1/(2*np.pi)*np.arctan(b_2*z_0)*wavelength
+    l_2_sc = 1/(2*np.pi)*np.arctan(1/(b_2*z_0))*wavelength
+    # add lambda/2 to the stub lengths if they are less than 0
+    if l_1_oc < 0:
+        l_1_oc += np.ceil(np.abs(l_1_oc)/(wavelength/2))*wavelength/2
+    if l_1_sc < 0:
+        l_1_sc += np.ceil(np.abs(l_1_sc)/(wavelength/2))*wavelength/2
+    if l_2_oc < 0:
+        l_2_oc += np.ceil(np.abs(l_2_oc)/(wavelength/2))*wavelength/2
+    if l_2_sc < 0:
+        l_2_sc += np.ceil(np.abs(l_2_sc)/(wavelength/2))*wavelength/2
+
+    results = {'oc':[(d_1,l_1_oc), (d_2, l_2_oc)],
+            'sc':[(d_1,l_1_sc), (d_2,l_2_sc)]} 
+
+    return results
+
+def stub_susceptance(stub_t, r_ld, x_ld, z_0):
+    """
+    Returns the susceptance for a stub given the stub's t, the real and
+    complex components of the load, and the line impedance.
+    """
+    b_num = r_ld*r_ld*stub_t - (z_0-x_ld*stub_t)*(x_ld+z_0*stub_t)
+    b_den = z_0*(r_ld*r_ld + (x_ld+z_0*stub_t)**2)
+    return b_num/b_den 
+
 def match_lumped(line_impedance, load_impedance, frequency, plot=False):
     """
     Matches a real line impedance to a complex load impedance at the given
