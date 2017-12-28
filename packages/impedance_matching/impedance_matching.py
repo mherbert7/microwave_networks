@@ -15,6 +15,8 @@ def match_single_shunt_stub(line_impedance, load_impedance, frequency,
     """
     Matches a real line impedance to a complex load impedance at a given
     frequency using a single shunt stub.
+
+    Returns a dictionary containing distance, length pairs.
     """
     if np.imag(line_impedance) != 0:
         raise ValueError('Line impedance must be solely real')
@@ -66,8 +68,20 @@ def match_single_shunt_stub(line_impedance, load_impedance, frequency,
     if l_2_sc < 0:
         l_2_sc += np.ceil(np.abs(l_2_sc)/(wavelength/2))*wavelength/2
 
+    # late change: return distances and lengths as wavelengths so 
+    # the user can adjust depending upon permittivity
+    d_1 = d_1/wavelength
+    d_2 = d_2/wavelength
+    l_1_oc = l_1_oc/wavelength
+    l_2_oc = l_2_oc/wavelength
+    l_1_sc = l_1_sc/wavelength
+    l_2_sc = l_2_sc/wavelength
+
     results = {'oc':[(d_1,l_1_oc), (d_2, l_2_oc)],
             'sc':[(d_1,l_1_sc), (d_2,l_2_sc)]} 
+
+    if plot == True:
+        match_shunt_stub_refl_plot(results, z_0, frequency, load_impedance)
 
     return results
 
@@ -79,6 +93,58 @@ def stub_susceptance(stub_t, r_ld, x_ld, z_0):
     b_num = r_ld*r_ld*stub_t - (z_0-x_ld*stub_t)*(x_ld+z_0*stub_t)
     b_den = z_0*(r_ld*r_ld + (x_ld+z_0*stub_t)**2)
     return b_num/b_den 
+
+def match_shunt_stub_refl_plot(results, z_0, frq, z_L):
+    """
+    Plots the reflection coefficients over frequency for each solution
+    from a shunt stub matching circuit.
+    """
+    # Hardcode the frequency steps at 50 over the frequency range (2 * the 
+    # centre frequency)
+    freq_steps = 50.0
+    stp = 2*frq/freq_steps
+    freqs = np.arange(2*frq, 0, -stp, dtype='float')
+    cent_wv_length = 3e8/(frq)
+
+    # Determine the reactance of the load given its impedance and frequency
+    if np.imag(z_L) >= 0:
+        L_load = np.imag(z_L)/(2*np.pi*frq)
+        X_load = 1j*2*np.pi*freqs*L_load
+    elif np.imag(z_L) < 0:
+        C_load = 1/(np.abs(np.imag(z_L))*2*np.pi*frq)
+        X_load = 1/(1j*2*np.pi*freqs*C_load)
+    Z_load = np.real(z_L) + X_load
+    beta = 2*np.pi*freqs/3e8
+
+    # For each of the four combinations, determine the reflection 
+    # coefficient magnitude
+    refl_co_master = {}
+    for i in results:
+        for j in results[i]:
+            stb_d = j[0]*cent_wv_length
+            stb_l = j[1]*cent_wv_length
+            z_tl = z_0*(Z_load+1j*z_0*np.tan(beta*stb_d))/ \
+                (z_0+1j*Z_load*np.tan(beta*stb_d))
+            if i == 'oc':
+                z_stb = -1j*z_0/np.tan(beta*stb_l)
+            elif i == 'sc':
+                z_stb = 1j*z_0*np.tan(beta*stb_l)
+            z_m = z_stb*z_tl/(z_stb+z_tl)
+            refl_co_sol = np.abs((z_m-z_0)/(z_m+z_0))
+            sol_str = i+'_'+("%.4f"%(stb_d/cent_wv_length))+'d'
+            refl_co_master[sol_str] = refl_co_sol
+    
+    # plot the solutions
+    legend = []
+    for i in refl_co_master:
+        plt.plot(freqs, refl_co_master[i], '.--')
+        legend.append(i)
+    plt.legend(legend)
+    plt.xlabel('Frequency (Hz)')
+    plt.ylabel('Reflection Coefficient Magnitude')
+    plt.title('Single-Stub Match Reflection Coefficient Comparison') 
+    plt.axis([0, 2*frq, 0, 1])
+    plt.show()
 
 def match_lumped(line_impedance, load_impedance, frequency, plot=False):
     """
