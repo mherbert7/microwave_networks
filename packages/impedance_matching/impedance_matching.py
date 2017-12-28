@@ -59,7 +59,7 @@ def match_L_plot(z_0, frq, z_L, c_1, l_1, c_2, l_2):
     freqs = np.arange(2*frq, 0, -stp, dtype='float')
     refl_co_sol1 = np.zeros(len(freqs))
     refl_co_sol2 = np.zeros(len(freqs))
-    print "c_1 ", c_1, " l_1 ", l_1
+    print("c_1 ", c_1, " l_1 ", l_1)
     if np.real(z_L) >= z_0:
         # solution 1
         X_p1 = 1/(2*np.pi*freqs*c_1*1j)
