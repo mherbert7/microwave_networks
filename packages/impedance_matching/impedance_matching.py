@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Created on Wed Dec 27 08:51:45 2017
-Last modified: Thu Dec 28 12:27 2017
+Last modified: Fri Dec 29 2017
 
 @author: Michael
 """
@@ -10,13 +10,223 @@ __author__ = "michael"
 import numpy as np
 import matplotlib.pyplot as plt
 
+def match_double_stub(line_impedance, load_impedance, frequency, 
+        dist_first_stub, dist_bet_stubs, plot=False):
+    """
+    Matches a real line impedance to a complex load impedance at the
+    given frequency using two shunt stubs. 
+    dist_first_stub is the distance (in wavelengths) from the load to
+    the first stub.
+    dist_bet_stubs is the distance (in wavelengths) between the two stubs.
+    
+    Returns a dictionary for open-circuit and short-circuit solutions.
+    The dictionary entries are tuples whose first value is the length
+    of the stub closest to the load, and the second is the length of
+    the farther stub (in wavelengths).
+    """
+    if np.imag(line_impedance) != 0:
+        raise ValueError('Line impedance must be solely real')
+    if np.real(line_impedance) <= 0:
+        raise ValueError('Line impedance must be positive')
+    wavelength = 3e8/(frequency)
+
+    # transform the load impedance so that it is at the position of the
+    # first stub
+    z_0 = line_impedance
+    y_0 = 1/z_0
+    t = np.tan(2*np.pi*dist_bet_stubs)
+    z_ld = load_impedance
+    z_ldd = z_0*(z_ld+1j*z_0*np.tan(2*np.pi*dist_first_stub))/ \
+        (z_0+1j*z_ld*np.tan(2*np.pi*dist_first_stub))
+    # determine the conductance and susceptance of the transformed load
+    g_ldd = np.real(1/z_ldd)
+    b_ldd = np.imag(1/z_ldd)
+    # first stub susceptance(s)
+    b_stb1_rt = np.sqrt((1+t*t)*g_ldd*y_0-g_ldd*g_ldd*t*t)
+    b_stb1_1 = -b_ldd+(y_0+b_stb1_rt)/t
+    b_stb1_2 = -b_ldd+(y_0-b_stb1_rt)/t
+    # second stub susceptance(s)
+    b_stb2_rt = np.sqrt(y_0*g_ldd*(1+t*t)-g_ldd*g_ldd*t*t)
+    b_stb2_1 = (y_0*b_stb2_rt+g_ldd*y_0)/(g_ldd*t)
+    b_stb2_2 = (-y_0*b_stb2_rt+g_ldd*y_0)/(g_ldd*t)
+    # stub lengths
+    l_stb1_1_oc = 1/(2*np.pi)*np.arctan(b_stb1_1/y_0)
+    l_stb1_2_oc = 1/(2*np.pi)*np.arctan(b_stb1_2/y_0)
+    l_stb2_1_oc = 1/(2*np.pi)*np.arctan(b_stb2_1/y_0)
+    l_stb2_2_oc = 1/(2*np.pi)*np.arctan(b_stb2_2/y_0)
+    l_stb1_1_sc = -1/(2*np.pi)*np.arctan(y_0/b_stb1_1)
+    l_stb1_2_sc = -1/(2*np.pi)*np.arctan(y_0/b_stb1_2)
+    l_stb2_1_sc = -1/(2*np.pi)*np.arctan(y_0/b_stb2_1)
+    l_stb2_2_sc = -1/(2*np.pi)*np.arctan(y_0/b_stb2_2)
+    # correct the stub lengths (for the cases where they are negative)
+    stub_lengths = np.array([l_stb1_1_oc, l_stb1_2_oc, l_stb2_1_oc, 
+        l_stb2_2_oc, l_stb1_1_sc, l_stb1_2_sc, l_stb2_1_sc, l_stb2_2_sc])
+    stub_lengths = stub_lengths*wavelength
+    i = 0
+    while i < len(stub_lengths):
+        if stub_lengths[i] < 0:
+            stub_lengths[i] += np.ceil(np.abs(stub_lengths[i])/\
+                (wavelength/2))*wavelength/2
+        stub_lengths[i] = stub_lengths[i]/wavelength
+        i += 1 
+
+    results = {'oc':[(stub_lengths[0],stub_lengths[2]),
+            (stub_lengths[1],stub_lengths[3])],
+            'sc':[(stub_lengths[4],stub_lengths[6]),
+            (stub_lengths[5],stub_lengths[7])]}
+
+    if plot == True:
+        match_double_stub_refl_plot(results, z_0, frequency,
+            z_ldd, dist_bet_stubs)
+
+    return results
+
+def match_double_stub_refl_plot(results, z_0, frq, z_ldd, stb_sep):
+    """
+    Plots the reflection coefficients over the frequency range for each
+    solution to a double stub matching problem.
+    Results is the dictionary given by match_double_stub().
+    z_0 is the characteristic impedance of the line.
+    frq is the centre frequency.
+    z_ldd is the load impedance as seen at the first stub.
+    stb_sep is the stub separation in wavelengths.
+
+    Plot key is short-circuit ('sc') or open-circuit ('oc') followed by
+    stub 1 length in wavelengths.
+    """
+    freq_steps = 50.0
+    stp = 2*frq/freq_steps
+    freqs = np.arange(2*frq, 0, -stp, dtype='float')
+    cent_wv_length = 3e8/frq
+    # determine the reactance of the load given its impedance and frequency
+    if np.imag(z_ldd) >= 0:
+        L_load = np.imag(z_ldd)/(2*np.pi*frq)
+        X_load = 1j*2*np.pi*freqs*L_load
+    elif np.imag(z_ldd) < 0:
+        C_load = 1/(np.abs(np.imag(z_ldd))*2*np.pi*frq)
+        X_load = 1/(1j*2*np.pi*freqs*C_load)
+    y_ld = 1/(np.real(z_ldd)+X_load)
+    beta = 2*np.pi*freqs/3e8
+
+    # for each combination of stubs, determine the reflection coefficients
+    refl_co_master = {}
+    for i in results:
+        for j in results[i]:
+            stb1_l = j[0]*cent_wv_length
+            stb2_l = j[1]*cent_wv_length
+            print("stb1_l:",stb1_l,"stb2_l:",stb2_l)
+            if i == 'oc':
+                y_stb1 = 1/(-1j*z_0/np.tan(beta*stb1_l))
+                y_stb2 = 1/(-1j*z_0/np.tan(beta*stb2_l))
+            elif i == 'sc':
+                y_stb1 = 1/(1j*z_0*np.tan(beta*stb1_l))
+                y_stb2 = 1/(1j*z_0*np.tan(beta*stb2_l))
+            # get the impedance of the load + stub 1 combination
+            z_stb1_ld = 1/(y_ld + y_stb1)
+            # transform along the line to be at the same position as stub 2
+            stb_sep_l = stb_sep*cent_wv_length
+            z_tr = z_0*(z_stb1_ld+1j*z_0*np.tan(beta*stb_sep_l))/ \
+                (z_0+1j*z_stb1_ld*np.tan(beta*stb_sep_l))
+            y_tr = 1/z_tr
+            # get the matched impedance
+            z_m = 1/(y_stb2 + y_tr)
+            refl_co_sol = np.abs((z_m-z_0)/(z_m+z_0))
+            sol_str = i+'_'+("%.4f"%(stb1_l/cent_wv_length))+'s1' 
+            refl_co_master[sol_str] = refl_co_sol
+    
+    # plot the solutions
+    legend = []
+    for i in refl_co_master:
+        plt.plot(freqs, refl_co_master[i], '.--')
+        legend.append(i)
+    plt.legend(legend)
+    plt.xlabel('Frequency (Hz)')
+    plt.ylabel('Reflection Coefficient Magnitude')
+    plt.title('Double-Stub Match Reflection Coefficient Comparision')
+    plt.axis([0, 2*frq, 0, 1])
+    plt.show()
+    
+
+def match_single_series_stub(line_impedance, load_impedance, frequency,
+        plot=False):
+    """
+    Matches a real line impedance to a complex load impedance at a given
+    frequency using a single series stub.
+
+    Returns a dictionary containing distance, length pairs (values given
+    in wavelengths). Keys are open-circuit ('oc') and short-circuit ('sc').
+    """
+    if np.imag(line_impedance) != 0:
+        raise ValueError('Line impedance must be solely real')
+    if np.real(line_impedance) <= 0:
+        raise ValueError('Line impedance must be positive')
+    g_ld = np.real(1/load_impedance) # conductance
+    b_ld = np.imag(1/load_impedance) # susceptance
+    y_0 = 1./line_impedance # admittance of line
+    wavelength = 3e8/(frequency)
+    if g_ld == y_0:
+        t_1 = -b_ld/(2*y_0)
+        t_2 = t_1
+    else:
+        t_num_rt = np.sqrt(g_ld*((y_0-g_ld)**2+b_ld*b_ld)/y_0)
+        t_1 = (b_ld+t_num_rt)/(g_ld-y_0)
+        t_2 = (b_ld-t_num_rt)/(g_ld-y_0)
+
+    # determine the distance from the load to place the stub
+    if t_1 >= 0:
+        d_1 = 1/(2*np.pi)*np.arctan(t_1)
+    else:
+        d_1 = 1/(2*np.pi)*(np.pi + np.arctan(t_1))
+    if t_2 >= 0:
+        d_2 = 1/(2*np.pi)*np.arctan(t_2)
+    else:
+        d_2 = 1/(2*np.pi)*(np.pi + np.arctan(t_2))
+    d_1 = d_1*wavelength
+    d_2 = d_2*wavelength
+    
+    # get the values for X (reactance of line)
+    x_1 = ((g_ld**2)*t_1-(y_0-t_1*b_ld)*(b_ld+t_1*y_0))
+    x_1 = x_1/(y_0*(g_ld**2+(b_ld+y_0*t_1)**2))
+    x_2 = ((g_ld**2)*t_2-(y_0-t_2*b_ld)*(b_ld+t_2*y_0))
+    x_2 = x_2/(y_0*(g_ld**2+(b_ld+y_0*t_2)**2))
+
+    # determine the stub lengths
+    l_1_sc = -1/(2*np.pi)*np.arctan(x_1*y_0)*wavelength
+    l_1_oc = 1/(2*np.pi)*np.arctan(1/(y_0*x_1))*wavelength
+    l_2_sc = -1/(2*np.pi)*np.arctan(x_2*y_0)*wavelength
+    l_2_oc = 1/(2*np.pi)*np.arctan(1/(y_0*x_2))*wavelength
+    if l_1_oc < 0:
+        l_1_oc += np.ceil(np.abs(l_1_oc)/(wavelength/2))*wavelength/2
+    if l_1_sc < 0:
+        l_1_sc += np.ceil(np.abs(l_1_sc)/(wavelength/2))*wavelength/2
+    if l_2_oc < 0:
+        l_2_oc += np.ceil(np.abs(l_2_oc)/(wavelength/2))*wavelength/2
+    if l_2_sc < 0:
+        l_2_sc += np.ceil(np.abs(l_2_sc)/(wavelength/2))*wavelength/2
+    d_1 = d_1/wavelength
+    d_2 = d_2/wavelength
+    l_1_oc = l_1_oc/wavelength
+    l_2_oc = l_2_oc/wavelength
+    l_1_sc = l_1_sc/wavelength
+    l_2_sc = l_2_sc/wavelength
+
+    results = {'oc':[(d_1,l_1_oc), (d_2, l_2_oc)],
+            'sc':[(d_1,l_1_sc), (d_2,l_2_sc)]} 
+
+    if plot == True:
+        match_single_stub_refl_plot(results, 1/y_0, frequency, 
+            load_impedance, 'series')
+
+    return results
+
 def match_single_shunt_stub(line_impedance, load_impedance, frequency, 
         plot=False):
     """
     Matches a real line impedance to a complex load impedance at a given
     frequency using a single shunt stub.
 
-    Returns a dictionary containing distance, length pairs.
+    Returns a dictionary containing distance, length pairs. Values are in
+    wavelengths. Keys are open-circuit ('oc') and short-circuit ('sc').
     """
     if np.imag(line_impedance) != 0:
         raise ValueError('Line impedance must be solely real')
@@ -26,7 +236,6 @@ def match_single_shunt_stub(line_impedance, load_impedance, frequency,
     x_ld = np.imag(load_impedance)
     z_0 = line_impedance
     wavelength = 3e8/(frequency)
-    prop_const = 2*np.pi/wavelength
     # using impedance of transmission line to solve for distance from load
     # and length of stub
     if r_ld == z_0:
@@ -81,7 +290,8 @@ def match_single_shunt_stub(line_impedance, load_impedance, frequency,
             'sc':[(d_1,l_1_sc), (d_2,l_2_sc)]} 
 
     if plot == True:
-        match_shunt_stub_refl_plot(results, z_0, frequency, load_impedance)
+        match_single_stub_refl_plot(results, z_0, frequency, 
+            load_impedance, 'shunt')
 
     return results
 
@@ -94,10 +304,19 @@ def stub_susceptance(stub_t, r_ld, x_ld, z_0):
     b_den = z_0*(r_ld*r_ld + (x_ld+z_0*stub_t)**2)
     return b_num/b_den 
 
-def match_shunt_stub_refl_plot(results, z_0, frq, z_L):
+def match_single_stub_refl_plot(results, z_0, frq, z_L, ser_shunt):
     """
-    Plots the reflection coefficients over frequency for each solution
-    from a shunt stub matching circuit.
+    Plots the reflection coefficients over the frequency range for each
+    solution from a stub match. 
+    Results is the solution dictionary as produced by
+    match_single_series_stub() or match_single_shunt_stub().
+    z_0 is the characteristic impedance of the line.
+    z_L is the load impedance.
+    ser_shunt is a string to choose between a 'shunt' match and a 'series'
+    match.
+
+    Plot key is open-circuit ('oc') or short-circuit ('sc') followed by
+    the distance from the load to the stub.
     """
     # Hardcode the frequency steps at 50 over the frequency range (2 * the 
     # centre frequency)
@@ -129,7 +348,10 @@ def match_shunt_stub_refl_plot(results, z_0, frq, z_L):
                 z_stb = -1j*z_0/np.tan(beta*stb_l)
             elif i == 'sc':
                 z_stb = 1j*z_0*np.tan(beta*stb_l)
-            z_m = z_stb*z_tl/(z_stb+z_tl)
+            if ser_shunt == 'shunt':
+                z_m = z_stb*z_tl/(z_stb+z_tl)
+            elif ser_shunt == 'series':
+                z_m = z_stb + z_tl
             refl_co_sol = np.abs((z_m-z_0)/(z_m+z_0))
             sol_str = i+'_'+("%.4f"%(stb_d/cent_wv_length))+'d'
             refl_co_master[sol_str] = refl_co_sol
