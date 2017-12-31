@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Created on Wed Dec 27 08:51:45 2017
-Last modified: Fri Dec 29 2017
+Last modified: Sun Dec 31 2017
 
 @author: Michael
 """
@@ -9,6 +9,125 @@ __version__ = "0.1"
 __author__ = "michael"
 import numpy as np
 import matplotlib.pyplot as plt
+
+def match_chebyshev(line_impedance, load_impedance, n_sec, max_ref):
+    """
+    Calculates the impedances of the matching transmission lines for a
+    Chebyshev match between the line and the load. Returns a tuple whose
+    first entry is the list of impedances for the transformers (from the 
+    larger impedance to the smaller impedance), and whose second entry is 
+    the fractional bandwidth. Maximum reflection in passband must be specified.
+
+    Note: maximum number of sections is six. 
+    """
+    z_0 = line_impedance
+    z_l = load_impedance
+    if np.imag(z_0) != 0 or np.imag(z_l) != 0:
+        raise ValueError('Impedances must be purely real, consider a stub ' +
+            'to eliminate the reactive component of the load')
+    if n_sec > 6 or n_sec < 2:
+        raise ValueError('Number of Sections should be between 2 and 6')
+    # calculate theta_m and fractional bandwidth
+    theta_m = np.arccos(np.cosh(1/n_sec*np.arccosh( \
+        1/max_ref*np.abs(0.5*np.log(z_l/z_0))))**(-1))
+    f_bw = 2-4*theta_m/np.pi
+    A = max_ref
+    if np.isnan(theta_m):
+        raise ValueError('Cannot meet required reflection coefficient with '+
+            'given sections.')
+
+    # calculate reflection coefficients 0 and 1
+    gamma_0 = A/2/(np.cos(theta_m)**n_sec)
+    gamma_1 = n_sec*A/2*(1/(np.cos(theta_m)**n_sec)- \
+        1/(np.cos(theta_m)**(n_sec-2)))
+    # then calculate other coefficient(s) as necessary and put into list
+    if n_sec == 3:
+        gamma_cheby = [gamma_0, gamma_1, gamma_1, gamma_0]
+    elif n_sec == 2:
+        gamma_cheby = [gamma_0, gamma_1, gamma_0]
+    elif n_sec == 4:
+        gamma_2 = A*(3/(np.cos(theta_m)**4)-4/(np.cos(theta_m)**2)+1)
+        gamma_cheby = [gamma_0, gamma_1, gamma_2, gamma_1, gamma_0]
+    elif n_sec == 5:
+        gamma_2 = 5*A/2*(2/(np.cos(theta_m)**5)-3/(np.cos(theta_m)**3) \
+            + 1/(np.cos(theta_m)))
+        gamma_cheby = [gamma_0, gamma_1, gamma_2, gamma_2, gamma_1, gamma_0]
+    elif n_sec == 6:
+        gamma_2 = A/2*(15/(np.cos(theta_m)**6)-24/(np.cos(theta_m)**4) \
+            +9/(np.cos(theta_m)**2))
+        gamma_3 = A*(10/(np.cos(theta_m)**6)-18/(np.cos(theta_m)**4) \
+            +9/(np.cos(theta_m)**2)-1)
+        gamma_cheby = [gamma_0, gamma_1, gamma_2, gamma_3, gamma_2, \
+            gamma_1, gamma_0] 
+
+    # determine impedance of quarter wave transformers
+    z_cheby = np.zeros(n_sec+2)
+    z_cheby[0] = min(z_l, z_0) 
+    i = 1
+    while i < len(z_cheby):
+        z_cheby[i] = z_cheby[i-1]*np.exp(2*gamma_cheby[i-1])
+        i += 1
+    return (z_cheby, f_bw)
+
+def match_binomial(line_impedance, load_impedance, n_sec, max_refl=-1):
+    """
+    Calculates the transmission line values for a binomial match.
+    Returns a tuple whose first entry is the list of impedances for the 
+    transformers (from line to load), and whose second entry is the
+    fractional bandwidth. If no maximum reflection coefficient is specified,
+    fractional bandwidth will be -1.
+    """
+    z_0 = line_impedance
+    z_l = load_impedance
+    if np.imag(z_0) != 0 or np.imag(z_l) != 0:
+        raise ValueError('Impedances must be purely real, consider a stub ' +
+            'to eliminate the reactive component of the load!')
+    # get A
+    A = 2**(-n_sec)*(z_l-z_0)/(z_l+z_0)
+    # determine fractional bandwith
+    if max_refl != -1:
+        g_m = max_refl
+        f_bw = 2-4/(np.pi)*np.arccos(0.5*(g_m/np.abs(A))**(1/n_sec)) 
+    else:
+        f_bw = -1
+    # get the C_n vector
+    C_n = np.zeros(n_sec+1)
+    i = 0
+    while i < n_sec+1:
+        C_n[i] = np.math.factorial(n_sec)/(np.math.factorial(n_sec-i)* \
+            np.math.factorial(i))
+        i += 1
+    g_coefs = A*C_n
+    z_match = np.zeros(n_sec+2)
+    z_match[0] = z_0
+    i = 1
+    while i < len(z_match):
+        z_match[i] = z_match[i-1]*np.exp(2*g_coefs[i-1])
+        i += 1
+    z_sols = z_match[1:-1]
+    return (z_sols, f_bw)
+
+def match_quarter_wave(line_impedance, load_impedance, max_refl=-1):
+    """
+    Calculates the impedance for a quarter-wave transformer.
+    If max_refl (the maximum acceptable reflection coefficient) is 
+    specified,
+    the function returns the fractional bandwidth in addition to the 
+    impedance of the transformer.
+    """
+    if np.imag(line_impedance) != 0 or np.imag(load_impedance) != 0:
+        raise ValueError('Impedances must be purely real, consider a stub ' + 
+            'to eliminate the reactive component of the load!')
+    z_0 = line_impedance
+    z_l = load_impedance
+    z_qw = np.sqrt(z_0*z_l)
+    g_m = max_refl
+    if max_refl != -1:
+        f_bw = 2-4/(np.pi)*np.arccos(g_m*2*z_qw/(np.sqrt(1-g_m*g_m)* \
+           np.abs(z_l-z_0)))
+    else:
+        f_bw = -1
+    return (z_qw, f_bw)
 
 def match_double_stub(line_impedance, load_impedance, frequency, 
         dist_first_stub, dist_bet_stubs, plot=False):
@@ -114,7 +233,6 @@ def match_double_stub_refl_plot(results, z_0, frq, z_ldd, stb_sep):
         for j in results[i]:
             stb1_l = j[0]*cent_wv_length
             stb2_l = j[1]*cent_wv_length
-            print("stb1_l:",stb1_l,"stb2_l:",stb2_l)
             if i == 'oc':
                 y_stb1 = 1/(-1j*z_0/np.tan(beta*stb1_l))
                 y_stb2 = 1/(-1j*z_0/np.tan(beta*stb2_l))
