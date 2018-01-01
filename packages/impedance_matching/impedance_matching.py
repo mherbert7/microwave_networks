@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Created on Wed Dec 27 08:51:45 2017
-Last modified: Sun Dec 31 2017
+Last modified: Mon Jan 1 2018
 
 @author: Michael
 """
@@ -18,15 +18,16 @@ def match_chebyshev(line_impedance, load_impedance, n_sec, max_ref):
     larger impedance to the smaller impedance), and whose second entry is 
     the fractional bandwidth. Maximum reflection in passband must be specified.
 
-    Note: maximum number of sections is six. 
+    Note: maximum number of sections is ten. 
     """
     z_0 = line_impedance
     z_l = load_impedance
+    n_sec = float(n_sec)
     if np.imag(z_0) != 0 or np.imag(z_l) != 0:
         raise ValueError('Impedances must be purely real, consider a stub ' +
             'to eliminate the reactive component of the load')
-    if n_sec > 6 or n_sec < 2:
-        raise ValueError('Number of Sections should be between 2 and 6')
+    if n_sec > 10 or n_sec < 2:
+        raise ValueError('Number of Sections should be between 2 and 10')
     # calculate theta_m and fractional bandwidth
     theta_m = np.arccos(np.cosh(1/n_sec*np.arccosh( \
         1/max_ref*np.abs(0.5*np.log(z_l/z_0))))**(-1))
@@ -36,32 +37,63 @@ def match_chebyshev(line_impedance, load_impedance, n_sec, max_ref):
         raise ValueError('Cannot meet required reflection coefficient with '+
             'given sections.')
 
-    # calculate reflection coefficients 0 and 1
+    # calculate reflection coefficients (formulas derived from Chebyshev
+    # polynomials)
     gamma_0 = A/2/(np.cos(theta_m)**n_sec)
     gamma_1 = n_sec*A/2*(1/(np.cos(theta_m)**n_sec)- \
         1/(np.cos(theta_m)**(n_sec-2)))
+    if n_sec > 3:
+        gamma_2 = A/2*((n_sec-1)*(n_sec/2)/(np.cos(theta_m)**(n_sec))-\
+            n_sec*(n_sec-2)/(np.cos(theta_m)**(n_sec-2))+\
+            n_sec/2*(n_sec-3)/(np.cos(theta_m)**(n_sec-4)))
     # then calculate other coefficient(s) as necessary and put into list
-    if n_sec == 3:
-        gamma_cheby = [gamma_0, gamma_1, gamma_1, gamma_0]
-    elif n_sec == 2:
+    if n_sec == 2:
         gamma_cheby = [gamma_0, gamma_1, gamma_0]
+    elif n_sec == 3:
+        gamma_cheby = [gamma_0, gamma_1, gamma_1, gamma_0]
     elif n_sec == 4:
-        gamma_2 = A*(3/(np.cos(theta_m)**4)-4/(np.cos(theta_m)**2)+1)
         gamma_cheby = [gamma_0, gamma_1, gamma_2, gamma_1, gamma_0]
     elif n_sec == 5:
-        gamma_2 = 5*A/2*(2/(np.cos(theta_m)**5)-3/(np.cos(theta_m)**3) \
-            + 1/(np.cos(theta_m)))
         gamma_cheby = [gamma_0, gamma_1, gamma_2, gamma_2, gamma_1, gamma_0]
     elif n_sec == 6:
-        gamma_2 = A/2*(15/(np.cos(theta_m)**6)-24/(np.cos(theta_m)**4) \
-            +9/(np.cos(theta_m)**2))
         gamma_3 = A*(10/(np.cos(theta_m)**6)-18/(np.cos(theta_m)**4) \
             +9/(np.cos(theta_m)**2)-1)
         gamma_cheby = [gamma_0, gamma_1, gamma_2, gamma_3, gamma_2, \
             gamma_1, gamma_0] 
+    elif n_sec == 7:
+        gamma_3 = A/2*(35/(np.cos(theta_m)**7)-70/(np.cos(theta_m)**5) \
+            +42/(np.cos(theta_m)**3)-7/np.cos(theta_m))
+        gamma_cheby = [gamma_0, gamma_1, gamma_2, gamma_3, gamma_3, \
+            gamma_2, gamma_1, gamma_0]
+    elif n_sec == 8:
+        gamma_3 = A/2*(56/(np.cos(theta_m)**8)-120/(np.cos(theta_m)**6) \
+            +80/(np.cos(theta_m)**4)-16/(np.cos(theta_m)**2))
+        gamma_4 = A*(35/(np.cos(theta_m)**8)-80/(np.cos(theta_m)**6)+\
+            60/(np.cos(theta_m)**4)-16/(np.cos(theta_m)**2)+1)
+        gamma_cheby = [gamma_0, gamma_1, gamma_2, gamma_3, gamma_4, \
+            gamma_3, gamma_2, gamma_1, gamma_0]
+    elif n_sec == 9:
+        gamma_3 = A/2*(84/(np.cos(theta_m)**9)-189/(np.cos(theta_m)**7)\
+            +135/(np.cos(theta_m)**5)-30/(np.cos(theta_m)**3))
+        gamma_4 = A/2*(126/(np.cos(theta_m)**9)-315/(np.cos(theta_m)**7)\
+            +270/(np.cos(theta_m)**5)-90/(np.cos(theta_m)**3)+\
+            9/np.cos(theta_m))        
+        gamma_cheby = [gamma_0, gamma_1, gamma_2, gamma_3, gamma_4, \
+            gamma_4, gamma_3, gamma_2, gamma_1, gamma_0]
+    elif n_sec == 10:
+        gamma_3 = A/2*(120/(np.cos(theta_m)**10)-280/(np.cos(theta_m)**8)\
+            +210/(np.cos(theta_m)**6)-50/(np.cos(theta_m)**4))
+        gamma_4 = A/2*(210/(np.cos(theta_m)**10)-560/(np.cos(theta_m)**8)\
+            +525/(np.cos(theta_m)**6)-200/(np.cos(theta_m)**4)\
+            +25/(np.cos(theta_m)**2))
+        gamma_5 = A*(126/(np.cos(theta_m)**10)-350/(np.cos(theta_m)**8)\
+            +350/(np.cos(theta_m)**6)-150/(np.cos(theta_m)**4)\
+            +25/(np.cos(theta_m)**2)-1)
+        gamma_cheby = [gamma_0, gamma_1, gamma_2, gamma_3, gamma_4, \
+            gamma_5, gamma_4, gamma_3, gamma_2, gamma_1, gamma_0]
 
     # determine impedance of quarter wave transformers
-    z_cheby = np.zeros(n_sec+2)
+    z_cheby = np.zeros(int(n_sec)+2)
     z_cheby[0] = min(z_l, z_0) 
     i = 1
     while i < len(z_cheby):
@@ -111,9 +143,8 @@ def match_quarter_wave(line_impedance, load_impedance, max_refl=-1):
     """
     Calculates the impedance for a quarter-wave transformer.
     If max_refl (the maximum acceptable reflection coefficient) is 
-    specified,
-    the function returns the fractional bandwidth in addition to the 
-    impedance of the transformer.
+    specified, the function returns the fractional bandwidth in addition 
+    to the impedance of the transformer.
     """
     if np.imag(line_impedance) != 0 or np.imag(load_impedance) != 0:
         raise ValueError('Impedances must be purely real, consider a stub ' + 
@@ -377,8 +408,12 @@ def match_single_shunt_stub(line_impedance, load_impedance, frequency,
     d_2 = d_2*wavelength
    
     # get the values for B (susceptance of line)
-    b_1 = stub_susceptance(t_1, r_ld, x_ld, z_0)
-    b_2 = stub_susceptance(t_2, r_ld, x_ld, z_0)
+    b_1_num = r_ld*r_ld*t_1-(z_0-x_ld*t_1)*(x_ld+z_0*t_1)
+    b_1_den = z_0*(r_ld*r_ld+(x_ld+z_0*t_1)**2)
+    b_1 = b_1_num/b_1_den
+    b_2_num = r_ld*r_ld*t_2-(z_0-x_ld*t_2)*(x_ld+z_0*t_2)
+    b_2_den = z_0*(r_ld*r_ld+(x_ld+z_0*t_2)**2)
+    b_2 = b_2_num/b_2_den
 
     # determine the stub lengths
     l_1_oc = -1/(2*np.pi)*np.arctan(b_1*z_0)*wavelength
@@ -412,15 +447,6 @@ def match_single_shunt_stub(line_impedance, load_impedance, frequency,
             load_impedance, 'shunt')
 
     return results
-
-def stub_susceptance(stub_t, r_ld, x_ld, z_0):
-    """
-    Returns the susceptance for a stub given the stub's t, the real and
-    complex components of the load, and the line impedance.
-    """
-    b_num = r_ld*r_ld*stub_t - (z_0-x_ld*stub_t)*(x_ld+z_0*stub_t)
-    b_den = z_0*(r_ld*r_ld + (x_ld+z_0*stub_t)**2)
-    return b_num/b_den 
 
 def match_single_stub_refl_plot(results, z_0, frq, z_L, ser_shunt):
     """
